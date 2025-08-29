@@ -119,14 +119,20 @@ struct VNEC_D_FP32 *Build_VNEC_D_FP32(const SpB_Matrix A)
         for (int i = thread_coord_start.x; i < thread_coord_end.x; ++i)
         {
             int ptr_start = ((int)(a->ptr[i]) > thread_coord_start.y) ? a->ptr[i] : thread_coord_start.y;
-            int n_one_line = a->ptr[i + 1] - ptr_start;
+            int ptr_end = ((int)(a->ptr[i + 1]) < thread_coord_end.y) ? a->ptr[i + 1] : thread_coord_end.y;
+            int n_one_line = ptr_end - ptr_start;
+
+            if (n_one_line <= 0) { 
+                mat_thd->v_row_ptr[i + 1] = group_index;
+                continue;
+            }
             mat_thd->col_start[group_index] = mat_thd->ecr_indices[ptr_start];
             mat_thd->val_align[val_align_idx] = aa_val[ptr_start];
 
             for (int j = 1; j < n_one_line; j++)
             {
                 int dist = mat_thd->ecr_indices[ptr_start + j] - mat_thd->col_start[group_index];
-                if (dist < nLanes_f32)
+                if ((dist < nLanes_f32) && (dist >= 0))
                 {
                     mat_thd->val_align[val_align_idx + dist] = aa_val[ptr_start + j];
                 }
@@ -138,11 +144,8 @@ struct VNEC_D_FP32 *Build_VNEC_D_FP32(const SpB_Matrix A)
                     mat_thd->val_align[val_align_idx] = aa_val[ptr_start + j];
                 }
             }
-            if (n_one_line != 0)
-            {
-                group_index++;
-                val_align_idx += nLanes_f32;
-            }
+            group_index++;
+            val_align_idx += nLanes_f32;
             mat_thd->v_row_ptr[i + 1] = group_index;
         }
     }
@@ -248,7 +251,7 @@ struct VNEC_D_FP64 *Build_VNEC_D_FP64(const SpB_Matrix A)
 
     VNEC_D_FP64 *mat_thd = (VNEC_D_FP64 *)malloc(sizeof(VNEC_D_FP64));
     int num_merge_items = nvals + nrows;
-    int items_per_thread = (num_merge_items + NUM_THREADS - 1) / NUM_THREADS;
+    int items_per_thread = (num_merge_items + NUM_THREADS - 1) / NUM_THREADS; //
     int *nz_indices = (int *)malloc((nvals) * sizeof(int));
     int *diagonal_start = (int *)malloc((NUM_THREADS) * sizeof(int));
     int *diagonal_end = (int *)malloc((NUM_THREADS) * sizeof(int));
@@ -277,7 +280,7 @@ struct VNEC_D_FP64 *Build_VNEC_D_FP64(const SpB_Matrix A)
     mat_thd->use_x_indices = (int **)malloc((NUM_THREADS + 1) * sizeof(int *));
     mat_thd->ecr_xx_val = (double **)malloc((NUM_THREADS + 1) * sizeof(double *));
 // mat_thd->ecr_xx_val = static_cast<double*>(_mm_malloc((NUM_THREADS + 1) * sizeof(double), 64));
-#pragma omp parallel for schedule(static) num_threads(NUM_THREADS)
+//#pragma omp parallel for schedule(static) num_threads(NUM_THREADS)
     for (int tid = 0; tid < NUM_THREADS; tid++) // 每一块
     {
         int *not_null_col_flag = (int *)malloc(A_COLS * sizeof(int));
@@ -310,7 +313,7 @@ struct VNEC_D_FP64 *Build_VNEC_D_FP64(const SpB_Matrix A)
             IDX_MAP[col] = IDX_MAP[col] - IDX_OFFSET[col];
         }
 
-        // #pragma omp critical
+#pragma omp critical
         {
             for (int j = thread_coord_start.y; j < thread_coord_end.y; ++j)
             {
@@ -338,13 +341,14 @@ struct VNEC_D_FP64 *Build_VNEC_D_FP64(const SpB_Matrix A)
     }
     double *aa_val = (double *)malloc((nvals + nLanes_f64) * sizeof(double));
     memset(aa_val, 0.0, (nvals + nLanes_f64) * sizeof(double));
-    for (SpB_Index i = 0; i < nvals + nLanes_f64; i++)
+#pragma omp parallel for schedule(static) num_threads(NUM_THREADS) 
+    for (SpB_Index i = 0; i < nvals; i++)
     {
         aa_val[i] = ((double *)a->val)[i];
     }
     mat_thd->col_start = (int *)malloc(nvals * sizeof(int));
     mat_thd->v_row_ptr = (int *)malloc((a->ptr_len) * sizeof(int));
-    // mat_thd->val_align = (double *)malloc(nvals * nLanes_f64 * sizeof(double));
+//    mat_thd->val_align = (double *)malloc(nvals * nLanes_f64 * sizeof(double));
 #ifdef X86_SIMD
     mat_thd->val_align = (double *)(_mm_malloc(nvals * nLanes_f64 * sizeof(double), 64));
 #else
@@ -363,14 +367,22 @@ struct VNEC_D_FP64 *Build_VNEC_D_FP64(const SpB_Matrix A)
         for (int i = thread_coord_start.x; i < thread_coord_end.x; ++i)
         {
             int ptr_start = ((int)(a->ptr[i]) > thread_coord_start.y) ? a->ptr[i] : thread_coord_start.y;
-            int n_one_line = a->ptr[i + 1] - ptr_start;
+            int ptr_end = ((int)(a->ptr[i + 1]) < thread_coord_end.y) ? a->ptr[i + 1] : thread_coord_end.y;
+            int n_one_line = ptr_end - ptr_start;
+
+            if (n_one_line <= 0) { 
+                mat_thd->v_row_ptr[i + 1] = group_index;
+                continue;
+
+            }
+
             mat_thd->col_start[group_index] = mat_thd->ecr_indices[ptr_start];
             mat_thd->val_align[val_align_idx] = aa_val[ptr_start];
 
             for (int j = 1; j < n_one_line; j++)
             {
                 int dist = mat_thd->ecr_indices[ptr_start + j] - mat_thd->col_start[group_index];
-                if (dist < nLanes_f64)
+                if ((dist < nLanes_f64) && (dist >= 0))
                 {
                     mat_thd->val_align[val_align_idx + dist] = aa_val[ptr_start + j];
                 }
@@ -382,11 +394,9 @@ struct VNEC_D_FP64 *Build_VNEC_D_FP64(const SpB_Matrix A)
                     mat_thd->val_align[val_align_idx] = aa_val[ptr_start + j];
                 }
             }
-            if (n_one_line != 0)
-            {
-                group_index++;
-                val_align_idx += nLanes_f64;
-            }
+
+            group_index++;
+            val_align_idx += nLanes_f64;
             mat_thd->v_row_ptr[i + 1] = group_index;
         }
     }
@@ -419,7 +429,7 @@ void SpMV_VNEC_D_FP64(SpB_Vector y, const SpB_Matrix A, const SpB_Vector x, VNEC
         for (; j < NEC_NUM - nLanes_f64; j += nLanes_f64)
         {
             __m256i id_avx = _mm256_loadu_si256((const __m256i *)(local_use_x_indices + j));
-            __m512d val_avx = _mm512_i32gather_pd(id_avx, (double *)xx->values, 8);
+            __m512d val_avx = _mm512_i32gather_pd(id_avx, (double *)xx->values, 8); //
             _mm512_storeu_pd(local_ecr_xx_val + j, val_avx);
         }
 #else
@@ -468,17 +478,19 @@ void SpMV_VNEC_D_FP64(SpB_Vector y, const SpB_Matrix A, const SpB_Vector x, VNEC
         }
 #endif
         double running_total = 0.0;
+//        const bool tail_processing = thread_coord_end.y != row_end_offsets[thread_coord_end.x]; //
         thread_coord_start.y = row_end_offsets[thread_coord_end.x - 1];
         for (; thread_coord_start.y < thread_coord_end.y; ++thread_coord_start.y)
         {
             running_total += ((double *)a->val)[thread_coord_start.y] * local_ecr_xx_val[mat_thd->ecr_indices[thread_coord_start.y]];
         }
         row_carry_out[tid] = thread_coord_end.x;
+//        value_carry_out[tid] = tail_processing ? running_total : 0.0; //
         value_carry_out[tid] = running_total;
     }
 // update the values in y for rows that span multiple threads
 #pragma omp parallel for schedule(static) num_threads(NUM_THREADS)
-    for (int tid = 0; tid < NUM_THREADS - 1; ++tid)
+    for (int tid = 0; tid < NUM_THREADS - 1; ++tid) //
     {
         ((double *)yy->values)[row_carry_out[tid]] += value_carry_out[tid];
     }

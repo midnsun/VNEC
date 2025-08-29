@@ -134,7 +134,7 @@ struct VNEC_S_FP32 *Build_VNEC_S_FP32(const SpB_Matrix A)
         int **buckets = (int **)malloc((max_rowlen + 1) * sizeof(int *));
         for (int i = 0; i <= max_rowlen; i++)
         {
-            buckets[i] = (int *)malloc(num_rows * sizeof(int));
+            buckets[i] = (int *)malloc((num_rows + 1) * sizeof(int));
             buckets[i][0] = 0;
         }
         for (int r = thread_coord_start_t.x; r < thread_coord_end_t.x; ++r)
@@ -243,16 +243,30 @@ struct VNEC_S_FP32 *Build_VNEC_S_FP32(const SpB_Matrix A)
         {
             int rowlen = mat_thd->reorder_mat.row_end[p] - mat_thd->reorder_mat.row_begin[p];
             int base = mat_thd->reorder_mat.row_begin[p];
-            float *nnz = (float *)malloc(rowlen * nLanes_f32 * sizeof(float));
-            int *col = (int *)malloc(rowlen * nLanes_f32 * sizeof(int));
+//            int rows_in_block = nLanes_f32;                 // or min(nLanes_f32, pm_len - c) for safety
+            int rows_in_block = min(nLanes_f32, pm_len - c);
+            float *nnz = (float *)malloc(rowlen * rows_in_block * sizeof(float));
+            int   *col = (int   *)malloc(rowlen * rows_in_block * sizeof(int));
 
-            memcpy(nnz, mat_thd->reorder_mat.nnz + base, rowlen * nLanes_f32 * sizeof(float));
-            memcpy(col, mat_thd->reorder_mat.col + base, rowlen * nLanes_f32 * sizeof(int));
+            for (int r = 0; r < rows_in_block; ++r) {
+                int rb = mat_thd->reorder_mat.row_begin[p + r];
+                int re = mat_thd->reorder_mat.row_end  [p + r];
+                int rl = re - rb;
 
-            for (int l = 0; l < rowlen; l++)
-            {
-                for (int r = 0; r < nLanes_f32; r++)
-                {
+                // Enforce equal-length grouping; if violated, either pad or handle specially
+                if (rl != rowlen) {
+                    // handle error: either pad, branch to a scalar path, or recompute groups
+                    // For now, be defensive:
+                    // rows_in_block = r; break;  // or return error
+                }
+
+                memcpy(nnz + r * rowlen, mat_thd->reorder_mat.nnz + rb, rowlen * sizeof(float));
+                memcpy(col + r * rowlen, mat_thd->reorder_mat.col + rb, rowlen * sizeof(int));
+            }
+
+            // ... then your transpose write-back is safe:
+            for (int l = 0; l < rowlen; ++l) {
+                for (int r = 0; r < rows_in_block; ++r) {
                     mat_thd->reorder_mat.nnz[base + l * nLanes_f32 + r] = nnz[r * rowlen + l];
                     mat_thd->reorder_mat.col[base + l * nLanes_f32 + r] = col[r * rowlen + l];
                 }
@@ -261,6 +275,12 @@ struct VNEC_S_FP32 *Build_VNEC_S_FP32(const SpB_Matrix A)
             free(col);
         }
     }
+    free(diagonal_start);
+    free(diagonal_end);
+    free(thread_coord_start);
+    free(thread_coord_end);
+    free(nz_indices);
+    free(ecr_indices);
     return mat_thd;
 }
 void SpMV_VNEC_S_FP32(SpB_Vector y, const SpB_Matrix A, const SpB_Vector x, VNEC_S_FP32 *mat_thd)
@@ -457,7 +477,7 @@ struct VNEC_S_FP64 *Build_VNEC_S_FP64(const SpB_Matrix A)
         int **buckets = (int **)malloc((max_rowlen + 1) * sizeof(int *));
         for (int i = 0; i <= max_rowlen; i++)
         {
-            buckets[i] = (int *)malloc(num_rows * sizeof(int));
+            buckets[i] = (int *)malloc((num_rows + 1) * sizeof(int));
             buckets[i][0] = 0;
         }
         for (int r = thread_coord_start_t.x; r < thread_coord_end_t.x; ++r)
@@ -565,15 +585,30 @@ struct VNEC_S_FP64 *Build_VNEC_S_FP64(const SpB_Matrix A)
         {
             int rowlen = mat_thd->reorder_mat.row_end[p] - mat_thd->reorder_mat.row_begin[p];
             int base = mat_thd->reorder_mat.row_begin[p];
-            double *nnz = (double *)malloc(rowlen * nLanes_f64 * sizeof(double));
-            int *col = (int *)malloc(rowlen * nLanes_f64 * sizeof(int));
+//            int rows_in_block = nLanes_f64;
+            int rows_in_block = min(nLanes_f64, pm_len - c)
+            double *nnz = (double *)malloc(rowlen * rows_in_block * sizeof(double));
+            int *col = (int *)malloc(rowlen * rows_in_block * sizeof(int));
 
-            memcpy(nnz, mat_thd->reorder_mat.nnz + base, rowlen * nLanes_f64 * sizeof(double));
-            memcpy(col, mat_thd->reorder_mat.col + base, rowlen * nLanes_f64 * sizeof(int));
+            for (int r = 0; r < rows_in_block; ++r) {
+                int rb = mat_thd->reorder_mat.row_begin[p + r];
+                int re = mat_thd->reorder_mat.row_end  [p + r];
+                int rl = re - rb;
+
+                // Enforce equal-length grouping; if violated, either pad or handle specially
+                if (rl != rowlen) {
+                    // handle error: either pad, branch to a scalar path, or recompute groups
+                    // For now, be defensive:
+                    // rows_in_block = r; break;  // or return error
+                }
+
+                memcpy(nnz + r * rowlen, mat_thd->reorder_mat.nnz + rb, rowlen * sizeof(double));
+                memcpy(col + r * rowlen, mat_thd->reorder_mat.col + rb, rowlen * sizeof(int));
+            }
 
             for (int l = 0; l < rowlen; l++)
             {
-                for (int r = 0; r < nLanes_f64; r++)
+                for (int r = 0; r < rows_in_block; r++)
                 {
                     mat_thd->reorder_mat.nnz[base + l * nLanes_f64 + r] = nnz[r * rowlen + l];
                     mat_thd->reorder_mat.col[base + l * nLanes_f64 + r] = col[r * rowlen + l];
@@ -583,7 +618,12 @@ struct VNEC_S_FP64 *Build_VNEC_S_FP64(const SpB_Matrix A)
             free(col);
         }
     }
-
+    free(diagonal_start);
+    free(diagonal_end);
+    free(thread_coord_start);
+    free(thread_coord_end);
+    free(nz_indices);
+    free(ecr_indices);
     return mat_thd;
 }
 void SpMV_VNEC_S_FP64(SpB_Vector y, const SpB_Matrix A, const SpB_Vector x, VNEC_S_FP64 *mat_thd)

@@ -63,11 +63,11 @@ SpB_VNEC_type IRD_VNEC(const SpB_Matrix A, SpB_Type type)
         free(IDX_MAP);
         free(IDX_OFFSET);
     }
-    int *col_start = (int *)malloc(a->nnz * sizeof(int));
-    int *v_row_ptr = (int *)malloc((a->ptr_len) * sizeof(int));
+    int *col_start = (int *)malloc((a->nnz + 1) * sizeof(int));
+    int *v_row_ptr = (int *)malloc((a->ptr_len + 1) * sizeof(int));
 
-    memset(col_start, 0, a->nnz * sizeof(int));
-    memset(v_row_ptr, 0, a->ptr_len * sizeof(int));
+    memset(col_start, 0, (a->nnz + 1) * sizeof(int));
+    memset(v_row_ptr, 0, (a->ptr_len + 1) * sizeof(int));
 
     int group_index = 0;
     v_row_ptr[0] = 0;
@@ -80,23 +80,25 @@ SpB_VNEC_type IRD_VNEC(const SpB_Matrix A, SpB_Type type)
         {
             int ptr_start = ((int)(a->ptr[i]) > thread_coord_start_.y) ? a->ptr[i] : thread_coord_start_.y;
             int n_one_line = a->ptr[i + 1] - ptr_start;
+//            if (n_one_line > 0) {
             col_start[group_index] = ecr_indices[ptr_start];
             for (int j = 1; j < n_one_line; j++)
             {
-                int dist = ecr_indices[ptr_start + j] - col_start[group_index];
-                if (dist < nLanes)
-                {
+                    int dist = ecr_indices[ptr_start + j] - col_start[group_index];
+                    if (dist < nLanes)
+                    {
+                    }
+                    else
+                    {
+                        group_index++;
+                        col_start[group_index] = ecr_indices[ptr_start + j];
+                    }
                 }
-                else
+                if (n_one_line != 0)
                 {
                     group_index++;
-                    col_start[group_index] = ecr_indices[ptr_start + j];
                 }
-            }
-            if (n_one_line != 0)
-            {
-                group_index++;
-            }
+//            }
             v_row_ptr[i + 1] = group_index;
         }
     }

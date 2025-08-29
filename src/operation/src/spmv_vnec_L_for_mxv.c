@@ -157,9 +157,9 @@ void SpMV_VNEC_L_FP64(SpB_Vector y, const SpB_Matrix A, const SpB_Vector x, VNEC
         value_carry_out[tid] = running_total;    // This row would be a little bit more complete with this. Each thread might have one of these
     }
 // update the values in y for rows that span multiple threads
-#pragma omp parallel for schedule(static) num_threads(NUM_THREADS)
+//#pragma omp parallel for schedule(static) num_threads(NUM_THREADS)
     for (int tid = 0; tid < NUM_THREADS - 1; ++tid)
     {
-        ((double *)yy->values)[row_carry_out[tid]] += value_carry_out[tid];
+            ((double *)yy->values)[row_carry_out[tid]] += value_carry_out[tid];
     }
 }

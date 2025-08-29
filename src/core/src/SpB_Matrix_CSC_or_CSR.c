@@ -29,6 +29,24 @@ static SpB_Info SpB_Matrix_CSC_or_CSR_grow(
         m->indices = (SpB_Index *)SpB_aligned_malloc(
             sizeof(SpB_Index) * capacity);
     assert(m->indices);
+
+// This is the missing part from your original function
+/*
+    SpB_Index ptr_capacity;
+    if (m->matrix_base.format_type == SpB_CSC) {
+        ptr_capacity = m->matrix_base.col + 1;
+    } else { // SpB_CSR
+        ptr_capacity = m->matrix_base.row + 1;
+    }
+
+    if (m->ptr) {
+        m->ptr = (SpB_Index *)SpB_aligned_realloc(m->ptr, sizeof(SpB_Index) * ptr_capacity);
+    } else {
+        m->ptr = (SpB_Index *)SpB_aligned_malloc(sizeof(SpB_Index) * ptr_capacity);
+    }
+    assert(m->ptr);
+//    m->ptr_len = ptr_capacity;
+*/
     m->capacity = capacity;
     return SpB_SUCCESS;
 }
@@ -66,12 +84,9 @@ SpB_Info SpB_Matrix_CSC_or_CSR_new(
     (*m)->capacity = 0;
     (*m)->val = NULL;
     (*m)->indices = NULL;
-    SpB_Index p_len =
-        (*m)->matrix_base.format_type == SpB_CSC
-            ? (row + 1)
-            : (col + 1);
+//    SpB_Index p_len = (*m)->matrix_base.format_type == SpB_CSC ? (row + 1) : (col + 1);
     OK_ALLOC((*m)->ptr = (SpB_Index *)SpB_aligned_calloc(
-                 p_len * sizeof(SpB_Index)));
+                 (*m)->ptr_len * sizeof(SpB_Index)));
 
     return SpB_SUCCESS;
 }
@@ -231,7 +246,7 @@ int tri_cmp_csc(const void *a, const void *b)
                         m->ptr[++ptr_index] = i;                          \
                     }                                                     \
                 }                                                         \
-                m->ptr[m->ptr_len - 1] = n;                               \
+                while (ptr_index < m->ptr_len - 1) m->ptr[++ptr_index] = n;\
                 return SpB_SUCCESS;                                       \
             }                                                             \
             else                                                          \
@@ -245,7 +260,7 @@ int tri_cmp_csc(const void *a, const void *b)
                         m->ptr[++ptr_index] = i;                          \
                     }                                                     \
                 }                                                         \
-                m->ptr[m->ptr_len - 1] = n;                               \
+                while (ptr_index < m->ptr_len - 1) m->ptr[++ptr_index] = n;\
                 return SpB_SUCCESS;                                       \
             }                                                             \
         }                                                                 \

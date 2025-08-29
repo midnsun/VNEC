@@ -25,7 +25,7 @@
 #endif
 #ifdef X86_SIMD
 #include <immintrin.h>
-#define NUM_THREADS 36
+#define NUM_THREADS omp_get_num_threads()
 #define nLanes_f32 16
 #define nLanes_f64 8
 #define IRD_thr_fp32 0.437
